@@ -9,7 +9,7 @@
 #include "RPi_Pico_TimerInterrupt.h"
 #include <WebServer.h>
 
-const int rowDataSize = 42;
+const int rowDataSize = 40;
 class CircleQ
 {
 public:
@@ -74,7 +74,8 @@ public:
       currentRow = 0;
 
     tbl = LFS.open("/" + fileName, "r+");
-    tbl.seek((currentRow * rowSize) - currentRow, SeekSet);
+    //tbl.seek((currentRow * rowSize) - currentRow, SeekSet);
+        tbl.seek((currentRow * rowSize) , SeekSet);
     unsigned char buff[rowSize];
     s.getBytes(buff, rowSize);
     tbl.write(buff, rowSize);
@@ -134,16 +135,45 @@ void FlashOn(){
 void FlashOff(){
   digitalWrite(LED_BUILTIN, LOW);
 }
+
+String fmtNum(float num, int precision,int padleft,int width){
+ String s = String(num,precision);
+ s = "0000000000"+s;
+ s=s.substring(s.length()-width,s.length());
+ Serial.println(s);
+ return s;  
+}
 void SaveData()
 {
   FlashOn();
-  char data[rowDataSize];
-  int x = sprintf(data, "%-19.19s,%-6.6s,%06.2f,%06.2f\n", "2023-10-10 10:10:10", "Sandy", (float)cQ.currentRow, (float)cQ.getRows());
+  char data[rowDataSize];  //2023-10-10 10:10:10,Sandy ,96.00,30.88
+  int x = sprintf(data, "%-19.19s,%-6.6s,%-5.5s,%-5.5s\n", "2023-10-10 10:10:10", "Sandy",fmtNum((float)cQ.currentRow,2,2,5).c_str(), fmtNum((float)analogReadTemp(),2,2,5).c_str());
   String s(data);
   cQ.Add(s);
   Serial.println("Saving to CircleQ: " + s + " " + String(cQ.currentRow));
   bAllowSave = false;
   FlashOff();
+}
+
+void CreateConfig(){
+      String arr[16] = {"SalonTemp=20",
+                      "MasterTemp=20.1",
+                      "VIPTemp=20.2",
+                      "SalonRadTemp=40.1",
+                      "MasterRadTemp=40.2",
+                      "VIPRadTemp=40.3",
+                      "SalonFanSpeed=10",
+                      "MasterFanSpeed=11",
+                      "VIPFanSpeed=12",
+                      "SalonSensorIndex=0",
+                      "SalonRadSensorIndex=1",
+                      "MasterSensorIndex=2",
+                      "MasterRadSensorIndex=3",
+                      "VIPSensorIndex=0",
+                      "VIPRadSensorIndex=1",
+                      "CurrentRow=0"};
+    String str = Join(arr, 15);
+    writeFile("config.txt", str);
 }
 int iifIP()
 {
@@ -157,7 +187,7 @@ int iifIP()
 void SetupWiFi()
 {
   Flash("Setup WiFi, Connecting to ");
-  if (WiFi.macAddress() == "28:cd:c1:0c:ca:15")
+  if (WiFi.macAddress() == "28:cd:c1:0c:c9:a9") // "28:cd:c1:0c:ca:15")
     WiFi.mode(WIFI_AP);
   else
     WiFi.mode(WIFI_STA);
@@ -197,7 +227,8 @@ void SetupWiFi()
 
 #pragma region WEB_STUFF
 void handleRoot() {
-  wserver.send(200, "text/plain", "hello from PiPico!");
+  Serial.println("User asked for main page");
+  wserver.send(200, "text/plain", "hello from PiPico! " +String(millis()));
 }
 
 void handleNotFound(){
@@ -217,6 +248,7 @@ void handleNotFound(){
 
   void DumpData()
   {
+      Serial.println("User asked for data ");
       File download = LFS.open("/Data.log", "r");
       if (download)
       {
@@ -268,26 +300,7 @@ void setup()
 #pragma region CONFIG_SETUP
   // LFS.remove("/config.txt");
   if (!LFS.exists("/config.txt"))
-  {
-    String arr[16] = {"SalonTemp=20",
-                      "MasterTemp=20.1",
-                      "VIPTemp=20.2",
-                      "SalonRadTemp=40.1",
-                      "MasterRadTemp=40.2",
-                      "VIPRadTemp=40.3",
-                      "SalonFanSpeed=10",
-                      "MasterFanSpeed=11",
-                      "VIPFanSpeed=12",
-                      "SalonSensorIndex=0",
-                      "SalonRadSensorIndex=1",
-                      "MasterSensorIndex=2",
-                      "MasterRadSensorIndex=3",
-                      "VIPSensorIndex=0",
-                      "VIPRadSensorIndex=1",
-                      "CurrentRow=0"};
-    String str = Join(arr, 15);
-    writeFile("config.txt", str);
-  }
+     CreateConfig();
   Serial.println(readAllLines("config.txt"));
 
   int CurrentLine = getConfigItem("CurrentRow", "0").toInt();
@@ -351,6 +364,7 @@ void loop()
 {
 
   wserver.handleClient();
+
   #pragma region CLIENTSERVER
 
   char myOwnBigBuffer[rowDataSize];
@@ -361,19 +375,22 @@ void loop()
     digitalWrite(LED_BUILTIN, HIGH);
     Serial.println("Resettting to Defaults");
     LFS.remove("/config.txt");
+    CreateConfig();
     LFS.remove("/Data.log");
+    cQ.begin("Data.log", 100, rowDataSize, 0); 
     setConfigItem("CurrentRow", "0");
-    setup();
+    
+    //setup();
   }
 
-  // if (bAllowSave)
-  //   SaveData();
+   if (bAllowSave)
+     SaveData();
 
   // put your main code here, to run repeatedly:
 
-  if (WiFi.macAddress() == "28:cd:c1:0c:ca:15")
+  if (WiFi.macAddress() == "28:cd:c1:0c:c9:a9" ) // "28:cd:c1:0c:ca:15")
   {
-    //Flash("In Server Mode");
+    Flash("In Server Mode @ "+ WiFi.localIP().toString() + " " + String(millis()));
     WiFiClient client = server.accept();
 
     if (client)
@@ -440,11 +457,10 @@ void loop()
 
 void loop1(){
   Serial.println("In Loop 1");
-  delay(1000);
+  delay(10000);
   // if(digitalRead(BOOTSEL))
   //  digitalWrite(LED_BUILTIN, LOW);
   // else
   //  digitalWrite(LED_BUILTIN, HIGH);
   // delay(1000);
-  
 }

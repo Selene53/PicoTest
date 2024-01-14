@@ -243,7 +243,7 @@ void setup1()
 
 void loop()
 {
-
+  //Serial.println("In Loop ");
   wserver.handleClient();
   if (!digitalRead(BOOTSEL))
   {
